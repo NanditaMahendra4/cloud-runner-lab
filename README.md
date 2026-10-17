@@ -44,8 +44,8 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
 
 3. **Enable the required APIs:**
    ```bash
-   - **In the Console, navigate to APIs & Services > Library.
-   - **Enable the Cloud Run API and the Container Registry API.
+   - In the Console, navigate to APIs & Services > Library.
+   - Enable the Cloud Run API and the Container Registry API.
    ```
 
 ---
@@ -126,8 +126,6 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
    ```bash
    docker run -p 8080:8080 gcr.io/YOUR_PROJECT_ID/hello-world
    ```
-   Visit `http://localhost:8080`, `/health` and `/info`, then press `Ctrl+C` to stop.
-
 ---
 
 ### Step 3: Push the Image
@@ -141,8 +139,6 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
    ```bash
    docker push gcr.io/YOUR_PROJECT_ID/hello-world
    ```
-   The push is finished when it prints a `latest: digest: sha256:...` line.
-
 ---
 
 ### Step 4: Deploy to Cloud Run
