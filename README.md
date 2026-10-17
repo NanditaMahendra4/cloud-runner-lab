@@ -9,7 +9,6 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
 **Application (`app.py`)**
 - **Configurable greeting:** the homepage message is read from a `GREETING` environment variable, so it can be changed in Cloud Run without editing code.
 - **Styled HTML homepage** with links to the service's other endpoints, replacing the plain "Hello, World!" text.
-- **`GET /health` endpoint** that returns `{"status": "ok"}` with a 200, giving Cloud Run and monitoring tools a lightweight endpoint to check.
 - **`GET /info` endpoint** that returns the Cloud Run service and revision name, using the `K_SERVICE` and `K_REVISION` variables Cloud Run sets automatically.
 - **Structured JSON logging:** every request is logged as JSON with a severity, path, and status code, so it can be filtered in Cloud Logging.
 - **Reads the `PORT` environment variable** (as Cloud Run recommends) instead of hard-coding 8080.
@@ -17,10 +16,6 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
 
 **Container (`Dockerfile`)**
 - **Upgraded the base image from Python 3.8 to Python 3.12.** Python 3.8 no longer receives security updates.
-
-**Build and deployment**
-- **Built with `--platform linux/amd64`.** Images built on Apple Silicon Macs default to ARM, which Cloud Run cannot run.
-- **Enabled the Artifact Registry API.** Google retired Container Registry, and `gcr.io` pushes are now stored in Artifact Registry.
 
 ---
 
@@ -32,27 +27,6 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
 ├── Dockerfile    # Container definition
 └── README.md
 ```
-
-## Endpoints
-
-| Endpoint  | Description                                             |
-|-----------|---------------------------------------------------------|
-| `/`       | HTML homepage showing the configurable greeting         |
-| `/health` | Health check, returns `{"status": "ok"}`                |
-| `/info`   | Returns the Cloud Run service and revision name as JSON |
-
----
-
-## Prerequisites
-
-- A Google Cloud account with billing enabled (this lab stays within the free tier)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/), installed and running
-- The [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) (`gcloud`). On macOS without Homebrew, install it with:
-  ```bash
-  curl https://sdk.cloud.google.com | bash
-  ```
-  Then open a new terminal and check with `gcloud --version`.
-
 ---
 
 ## Step-by-Step Guide
@@ -70,14 +44,66 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
 
 3. **Enable the required APIs:**
    ```bash
-   gcloud services enable run.googleapis.com artifactregistry.googleapis.com
+   - **In the Console, navigate to APIs & Services > Library.
+   - **Enable the Cloud Run API and the Container Registry API.
    ```
 
 ---
 
-### Step 2: Build the Container Image
+### Step 2: Build the Container Image and 
 
-1. **Dockerfile:**
+1. **Create the Flask Application**:
+   - Write a Flask application in Python that serves an HTML homepage with a configurable greeting, an `/info` endpoint that reports the Cloud Run service and revision, and structured JSON request logging.
+   - `app.py`:
+```python
+     import json
+     import os
+
+     from flask import Flask, jsonify, request
+
+     app = Flask(__name__)
+
+     GREETING = os.environ.get("GREETING", "Hello from Cloud Run!")
+
+
+     @app.after_request
+     def log_request(response):
+         print(json.dumps({
+             "severity": "INFO",
+             "message": "request handled",
+             "path": request.path,
+             "status": response.status_code,
+         }), flush=True)
+         return response
+
+
+     @app.route("/")
+     def home():
+         return f"""
+         <html>
+           <head><title>Cloud Run Lab</title></head>
+           <body style="font-family: sans-serif; text-align: center; margin-top: 15%;">
+             <h1>{GREETING}</h1>
+             <p>Running on Google Cloud Run</p>
+             <p><a href="/info">Service info</a></p>
+           </body>
+         </html>
+         """
+
+
+     @app.route("/info")
+     def info():
+         return jsonify(
+             service=os.environ.get("K_SERVICE", "local"),
+             revision=os.environ.get("K_REVISION", "local"),
+         )
+
+
+     if __name__ == "__main__":
+         app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)
+```
+    
+2.  **Dockerfile:**
    ```Dockerfile
    FROM python:3.12-slim
 
@@ -89,14 +115,14 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
    CMD ["python", "app.py"]
    ```
 
-2. **Build the image**, from the folder containing `app.py` and `Dockerfile`:
+3. **Build the image**, from the folder containing `app.py` and `Dockerfile`:
    ```bash
    docker build --platform linux/amd64 -t gcr.io/YOUR_PROJECT_ID/hello-world .
    ```
    - The project ID must be lowercase.
    - The `.` at the end is required. It tells Docker to build from the current folder.
 
-3. **Test it locally (optional):**
+4. **Test it locally (optional):**
    ```bash
    docker run -p 8080:8080 gcr.io/YOUR_PROJECT_ID/hello-world
    ```
@@ -129,23 +155,12 @@ This lab deploys a containerized Flask application on Google Cloud Run, then mon
 6. Click **Create**. When it finishes, Cloud Run shows the service URL.
 
 **Redeploying after changes:** rebuild and push the image, then open the service, select the new `latest` image in the **Containers** tab, and click **Redeploy**.
-
-**Command-line alternative:**
-```bash
-gcloud run deploy hello-world \
-  --image gcr.io/YOUR_PROJECT_ID/hello-world \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars GREETING="Hello from Cloud Run!"
-```
-
 ---
 
 ### Step 5: Test the Application
 
 Open the service URL and check each endpoint:
 - `/` shows the greeting page
-- `/health` returns `{"status": "ok"}`
 - `/info` returns the service and revision name. The revision changes with each deploy.
 
 ---
@@ -161,37 +176,11 @@ Open the service URL and check each endpoint:
 
 ---
 
-## Troubleshooting
-
-These are the problems encountered while completing this lab, and their fixes.
-
-| Error | Cause and fix |
-|-------|---------------|
-| `zsh: command not found: docker` | Docker Desktop is not installed. Install it and open it. |
-| `Docker Desktop is unable to start` | The engine was still starting. Wait for **Engine running** in Docker Desktop before building. |
-| `repository name must be lowercase` | The `YOUR_PROJECT_ID` placeholder was left in. Replace it with the real, lowercase project ID. |
-| `'docker buildx build' requires 1 argument` | The `.` at the end of `docker build` is missing. |
-| `You do not currently have an active account selected` | Not logged in. Run `gcloud auth login`. |
-| `Artifact Registry API has not been used in project...` | Enable it with `gcloud services enable artifactregistry.googleapis.com`. |
-| `Container manifest ... must support amd64/linux` | The image was built for ARM on an Apple Silicon Mac. Rebuild with `--platform linux/amd64`, push, and redeploy. |
-| `git push` rejected (`fetch first`) | The GitHub repo had a commit (e.g. a README) not present locally. Pull with `git pull origin main --allow-unrelated-histories --no-rebase --no-edit`, then push. |
-
----
-
-## Cleanup
-
-To avoid any charges after the lab:
-- Delete the Cloud Run service (select it in Cloud Run and click **Delete**).
-- Delete the image from Artifact Registry.
-- Or shut down the whole project under **IAM & Admin > Settings**.
-
----
-
 ## Conclusion
 
 In this lab I:
 - Set up a Google Cloud project and enabled the required APIs.
-- Extended the Flask app with a configurable greeting, health and info endpoints, and structured logging.
+- Extended the Flask app with a configurable greeting and info endpoints, and structured logging.
 - Upgraded the container to Python 3.12 and built it for Cloud Run's amd64 platform.
 - Pushed the image, deployed it to Cloud Run, and accessed it through a public URL.
 - Monitored the service with metrics and structured logs, and configured scaling.
